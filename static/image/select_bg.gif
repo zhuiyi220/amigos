@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<Error>
-  <Code>NoSuchKey</Code>
-  <Message>The specified key does not exist.</Message>
-  <RequestId>5E9E81B460DEB934366792C4</RequestId>
-  <HostId>img.wezhan.cn</HostId>
-  <Key>Plugins/Designer/Content/images/select_bg.gif</Key>
-</Error>
