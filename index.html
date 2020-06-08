@@ -1,718 +1,442 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    
-    <title>HOME</title>
+﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>HTML5实现炫酷照片墙</title>
+<!--引入开始-->
+<link rel="stylesheet" href="css/slider-wb.css">
+<style>
+html {
+	overflow: hidden;
+	-ms-touch-action: none;
+	-ms-content-zooming: none;
+}
+body {
+	position: absolute;
+	margin: 0px;
+	padding: 0px;
+	background: #fff;
+	width: 100%;
+	height: 100%;
+}
+#canvas {
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	background: #fff;
+}
+</style>
+<script src="analytics.js" async=""></script><script src="js/ge1doot.js"></script>
+<script>
+"use strict";
+(function () {
+	/* ==== definitions ==== */
+	var diapo = [], layers = [], ctx, pointer, scr, camera, light, fps = 0, quality = [1,2],
+	// ---- poly constructor ----
+	Poly = function (parent, face) {
+		this.parent = parent;
+		this.ctx    = ctx;
+		this.color  = face.fill || false;
+		this.points = [];
+		if (!face.img) {
+			// ---- create points ----
+			for (var i = 0; i < 4; i++) {
+				this.points[i] = new ge1doot.transform3D.Point(
+					parent.pc.x + (face.x[i] * parent.normalZ) + (face.z[i] * parent.normalX),
+					parent.pc.y +  face.y[i],
+					parent.pc.z + (face.x[i] * parent.normalX) + (-face.z[i] * parent.normalZ)
+				);
+			}
+			this.points[3].next = false;
+		}
+	},
+	// ---- diapo constructor ----
+	Diapo = function (path, img, structure) {
+		// ---- create image ----
+		this.img = new ge1doot.transform3D.Image(
+			this, path + img.img, 1, {
+				isLoaded: function(img) {
+					img.parent.isLoaded = true;
+					img.parent.loaded(img);
+				}
+			}
+		);
+		this.visible  = false;
+		this.normalX  = img.nx;
+		this.normalZ  = img.nz;
+		// ---- point center ----
+		this.pc = new ge1doot.transform3D.Point(img.x, img.y, img.z);
+		// ---- target positions ----
+		this.tx = img.x + (img.nx * Math.sqrt(camera.focalLength) * 20);
+		this.tz = img.z - (img.nz * Math.sqrt(camera.focalLength) * 20);
+		// ---- create polygons ----
+		this.poly = [];
+		for (var i = -1, p; p = structure[++i];) {
+			layers[i] = (p.img === true ? 1 : 2);
+			this.poly.push(
+				new Poly(this, p)
+			);
+		}
+	},
+	// ---- init section ----
+	init = function (json) {
+		// draw poly primitive
+		Poly.prototype.drawPoly = ge1doot.transform3D.drawPoly;
+		// ---- init screen ----
+		scr = new ge1doot.Screen({
+			container: "canvas"
+		});
+		ctx = scr.ctx;
+		scr.resize();
+		// ---- init pointer ----
+		pointer = new ge1doot.Pointer({
+			tap: function () {
+				if (camera.over) {
+					if (camera.over === camera.target.elem) {
+						// ---- return to the center ----
+						camera.target.x = 0;
+						camera.target.z = 0;
+						camera.target.elem = false;
+					} else {
+						// ---- goto diapo ----
+						camera.target.elem = camera.over;
+						camera.target.x = camera.over.tx;
+						camera.target.z = camera.over.tz;
+						// ---- adapt tesselation level to distance ----
+						for (var i = 0, d; d = diapo[i++];) {
+							var dx = camera.target.x - d.pc.x;
+							var dz = camera.target.z - d.pc.z;
+							var dist = Math.sqrt(dx * dx + dz * dz);
+							var lev = (dist > 1500) ? quality[0] : quality[1];
+							d.img.setLevel(lev);
+						}
+					}
+				}
+			}
+		});
+		// ---- init camera ----
+		camera = new ge1doot.transform3D.Camera({
+			focalLength: Math.sqrt(scr.width) * 10,
+			easeTranslation: 0.025,
+			easeRotation: 0.06,
+			disableRz: true
+		}, {
+			move: function () {
+				this.over = false;
+				// ---- rotation ----
+				if (pointer.isDraging) {
+					this.target.elem = false;
+					this.target.ry = -pointer.Xi * 0.01;
+					this.target.rx = (pointer.Y - scr.height * 0.5) / (scr.height * 0.5);
+				} else {
+					if (this.target.elem) {
+						this.target.ry = Math.atan2(
+							this.target.elem.pc.x - this.x,
+							this.target.elem.pc.z - this.z
+						);
+					}
+				}
+				this.target.rx *= 0.9;
+			}
+		});
+		camera.z  = -10000;
+		camera.py = 0;
+		// ---- create images ----
+		for (var i = 0, img; img = json.imgdata[i++];) {
+			diapo.push(
+				new Diapo(
+					json.options.imagesPath, 
+					img, 
+					json.structure
+				)
+			);
+		}	
+		// ---- start engine ---- >>>
+		setInterval(function() {
+			quality = (fps > 50) ? [2,3] : [1,2];
+			fps = 0;
+		}, 1000);
+		run();
+	},
+	// ---- main loop ----
+	run = function () {
+		// ---- clear screen ----
+		ctx.clearRect(0, 0, scr.width, scr.height);
+		// ---- camera ----
+		camera.move();
+		// ---- draw layers ----
+		for (var k = -1, l; l = layers[++k];) {
+			light = false;
+			for (var i = 0, d; d = diapo[i++];) {
+				(l === 1 && d.draw()) || 
+				(d.visible && d.poly[k].draw());
+			}
+		}
+		// ---- cursor ----
+		if (camera.over && !pointer.isDraging) {
+			scr.setCursor("pointer");
+		} else {
+			scr.setCursor("move");
+		}
+		// ---- loop ----
+		fps++;
+		requestAnimFrame(run);
+	};
+	/* ==== prototypes ==== */
+	Poly.prototype.draw = function () {
+		// ---- color light ----
+		var c = this.color;
+		if (c.light || !light) {
+			var s = c.light ? this.parent.light : 1;
+			// ---- rgba color ----
+			light = "rgba(" + 
+				Math.round(c.r * s) + "," +
+				Math.round(c.g * s) + "," + 
+				Math.round(c.b * s) + "," + (c.a || 1) + ")";
+			ctx.fillStyle = light;
+		}
+		// ---- paint poly ----
+		if (!c.light || this.parent.light < 1) {
+			// ---- projection ----
+			for (
+				var i = 0; 
+				this.points[i++].projection();
+			);
+			this.drawPoly();
+			ctx.fill();
+		}
+	}
+	/* ==== image onload ==== */
+	Diapo.prototype.loaded = function (img) {
+		// ---- create points ----
+		var d = [-1,1,1,-1,1,1,-1,-1];
+		var w = img.texture.width  * 0.5;
+		var h = img.texture.height * 0.5;
+		for (var i = 0; i < 4; i++) {
+			img.points[i] = new ge1doot.transform3D.Point(
+				this.pc.x + (w * this.normalZ * d[i]),
+				this.pc.y + (h * d[i + 4]),
+				this.pc.z + (w * this.normalX * d[i])
+			);
+		}
+	}
+	/* ==== images draw ==== */
+	Diapo.prototype.draw = function () {
+		// ---- visibility ----
+		this.pc.projection();
+		if (this.pc.Z > -(camera.focalLength >> 1) && this.img.transform3D(true)) {
+			// ---- light ----
+			this.light = 0.5 + Math.abs(this.normalZ * camera.cosY - this.normalX * camera.sinY) * 0.6;
+			// ---- draw image ----
+			this.visible = true;
+			this.img.draw();
+			// ---- test pointer inside ----
+			if (pointer.hasMoved || pointer.isDown) {
+				if (
+					this.img.isPointerInside(
+						pointer.X,
+						pointer.Y
+					)
+				) camera.over = this;
+			}
+		} else this.visible = false;
+		return true;
+	}
+	return {
+		// --- load data ----
+		load : function (data) {
+			window.addEventListener('load', function () {
+				ge1doot.loadJS(
+					"js/imageTransform3D.js",
+					init, data
+				);
+			}, false);
+		}
+	}
+})().load({
+	imgdata:[
+		// north
+		{img:'Images/1.jpg', x:-1000, y:0, z:1500, nx:0, nz:1},
+		{img:'Images/2.jpg', x:0,     y:0, z:1500, nx:0, nz:1},
+		{img:'Images/3.jpg', x:1000,  y:0, z:1500, nx:0, nz:1},
+		// east
+		{img:'Images/4.jpg', x:1500,  y:0, z:1000, nx:-1, nz:0},
+		{img:'Images/5.jpg', x:1500,  y:0, z:0, nx:-1, nz:0},
+		{img:'Images/6.jpg', x:1500,  y:0, z:-1000, nx:-1, nz:0},
+		// south
+		{img:'Images/7.jpg', x:1000,  y:0, z:-1500, nx:0, nz:-1},
+		{img:'Images/8.jpg', x:0,     y:0, z:-1500, nx:0, nz:-1},
+		{img:'Images/9.jpg', x:-1000, y:0, z:-1500, nx:0, nz:-1},
+		// west
+		{img:'Images/10.jpg', x:-1500, y:0, z:-1000, nx:1, nz:0},
+		{img:'Images/11.jpg', x:-1500, y:0, z:0, nx:1, nz:0},
+		{img:'Images/12.jpg', x:-1500, y:0, z:1000, nx:1, nz:0}
+	],
+	structure:[
+		{
+			// wall
+			fill: {r:255, g:255, b:255, light:1},
+			x: [-1001,-490,-490,-1001],
+			z: [-500,-500,-500,-500],
+			y: [500,500,-500,-500]
+		},{
+			// wall
+			fill: {r:255, g:255, b:255, light:1},
+			x: [-501,2,2,-500],
+			z: [-500,-500,-500,-500],
+			y: [500,500,-500,-500]
+		},{
+			// wall
+			fill: {r:255, g:255, b:255, light:1},
+			x: [0,502,502,0],
+			z: [-500,-500,-500,-500],
+			y: [500,500,-500,-500]
+		},{
+			// wall
+			fill: {r:255, g:255, b:255, light:1},
+			x: [490,1002,1002,490],
+			z: [-500,-500,-500,-500],
+			y: [500,500,-500,-500]
+		},{
+			// shadow
+			fill: {r:0, g:0, b:0, a:0.2},
+			x: [-420,420,420,-420],
+			z: [-500,-500,-500,-500],
+			y: [150, 150,-320,-320]
+		},{
+			// shadow
+			fill: {r:0, g:0, b:0, a:0.2},
+			x: [-20,20,20,-20],
+			z: [-500,-500,-500,-500],
+			y: [250, 250,150,150]
+		},{
+			// shadow
+			fill: {r:0, g:0, b:0, a:0.2},
+			x: [-20,20,20,-20],
+			z: [-500,-500,-500,-500],
+			y: [-320, -320,-500,-500]
+		},{
+			// shadow
+			fill: {r:0, g:0, b:0, a:0.2},
+			x: [-20,20,10,-10],
+			z: [-500,-500,-100,-100],
+			y: [-500, -500,-500,-500]
+		},{
+			// base
+			fill: {r:32, g:32, b:32},
+			x: [-50,50,50,-50],
+			z: [-150,-150,-50,-50],
+			y: [-500,-500,-500,-500]
+		},{
+			// support
+			fill: {r:16, g:16, b:16},
+			x: [-10,10,10,-10],
+			z: [-100,-100,-100,-100],
+			y: [300,300,-500,-500]
+		},{
+			// frame
+			fill: {r:255, g:255, b:255},
+			x: [-320,-320,-320,-320],
+			z: [0,-20,-20,0],
+			y: [-190,-190,190,190]
+		},{
+			// frame
+			fill: {r:255, g:255, b:255},
+			x: [320,320,320,320],
+			z: [0,-20,-20,0],
+			y: [-190,-190,190,190]
+		},
+		{img:true},
+		{
+			// ceilingLight
+			fill: {r:255, g:128, b:0},
+			x: [-50,50,50,-50],
+			z: [450,450,550,550],
+			y: [500,500,500,500]
+		},{
+			// groundLight
+			fill: {r:255, g:128, b:0},
+			x: [-50,50,50,-50],
+			z: [450,450,550,550],
+			y: [-500,-500,-500,-500]
+		}
+	],
+	options:{
+		imagesPath: ""
+	}
+});
+</script>
+<script src="imageTransform3D.js"></script>
+<!--引入结束-->
+<style>
+body{margin:0; padding:0;}
+</style>
+</head>	
+<body oncontextmenu='return false' ondragstart='return false'>
+<!-- 代码开始 -->
+<canvas style="cursor: move;" height="933" width="1920" id="canvas">你的浏览器不支持HTML5画布技术，请使用谷歌浏览器。</canvas>
+<!-- end of dhteumeuleu nav menu -->
+<div style="position: absolute; top: 20px; right: 20px;">
+<style type="text/css">
+.Qg{height: 30px;}
+.iI {
+    background: url(/misc-res/images/share.png) no-repeat scroll 0px 0px rgba(0, 0, 0, 0);
+    display: inline-block;
+    height: 16px;
+    margin-bottom: 3px;
+    vertical-align: middle;
+    width: 16px;
+}
+.jI {
+    margin-left: 2px;
+    color: #000000;
+}
+.RF{
+  float: left;
+}
 
-    <!-- Mobile Specific Metas
-  ================================================== -->
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    
-    <!-- CSS
-  ================================================== -->
-    <!-- Bootstrap -->
-    <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <!-- FontAwesome -->
-    <link rel="stylesheet" href="css/font-awesome.min.css">
-    <!-- Elegant icon font -->
-     <link rel="stylesheet" href="css/line-icons.min.css">
-    <!-- Animation -->
-    <link rel="stylesheet" href="css/animate.css">
-    <!-- Prettyphoto -->
-    <link rel="stylesheet" href="css/prettyPhoto.css">
-    <!-- Owl Carousel -->
-    <link rel="stylesheet" href="css/owl.carousel.css">
-    <link rel="stylesheet" href="css/owl.theme.css">
-    <!-- Scrolling nav css -->
-    <link rel="stylesheet" href="css/scrolling-nav.css">
-    <!-- Template styles-->
-    <link rel="stylesheet" href="css/style.css">
-    <!-- Responsive styles-->
-	<link rel="stylesheet" href="css/responsive.css">
-
-    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
-    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
-    <!--[if lt IE 9]>
-      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
-      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
-    <![endif]-->
-  </head>
-  <body data-spy="scroll" data-target=".navbar-fixed-top" >
-    
-<!-- Header start -->
-	<header id="header" role="banner" >
-		<nav class="navbar navbar-default navbar-fixed-top"  id="tf-menu">
-			<div class="container">
-				<div class="row">
-					<!-- Logo start -->
-					<div class="navbar-header">
-					    <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
-					        <span class="sr-only">Toggle navigation</span>
-					        <span class="icon-bar"></span>
-					        <span class="icon-bar"></span>
-					        <span class="icon-bar"></span>
-					    </button>
-					    <div class="navbar-brand">
-						    <a href="#" class="page-scroll">
-						    	<img class="img-responsive" src="images/logo1.png" alt="logo">
-						    </a> 
-					    </div>                   
-					</div><!--/ Logo end -->
-					<div class="collapse navbar-collapse clearfix navMenu" role="navigation">
-						<ul class="nav navbar-nav navbar-right">
-				            <li class="active"><a class="page-scroll" href="#slider-part" >Home</a></li>
-				            <li><a class="page-scroll" href="#feature" >Features</a></li>
-				            <li><a class="page-scroll" href="#process" >Process</a></li>
-				            <li><a class="page-scroll" href="#about" >About</a></li>
-				            <li><a class="page-scroll" href="#overview" >Screenshots</a></li>
-				            <li><a class="page-scroll" href="#benefit" >Benefit</a></li>
-				            <li><a class="page-scroll" href="#pricing" >pricing</a></li>
-				            <li><a class="page-scroll" href="#contact" >Contact</a></li>
-				        </ul>
-	      			</div><!--/ Navigation end -->
-				</div><!--/ Row end -->
-			</div><!--/ Container end -->
-		</nav>
-	</header><!--/ Header end -->
-    <!-- END MAIN NAV -->
-
-     <!-- slider section -->
-    <section class="slider">
-        <div class="slider-wrap">
-            <div class="texture-overlay"></div>
-            <div class="container">
-                <div class="row">
-                    <div class="col-md-4">
-                        <div class="slider-img pull-right hidden-xs">
-                            <img src="images/slider2.png" alt="" class="img-responsive">
-                        </div>
-                    </div>
-                    <div class="col-md-7 col-md-offset-1">
-                        <div class="slider-content ">
-                            <h1>Droplet</h1>
-                            <h2>get ready to see something awesome that will change your life.</h2>
-                            <ul class="top-link list-inline">
-                                <li><a href="#"><i class="fa fa-android"></i> Android</a></li>
-                                <li><a href="#"><i class="fa fa-apple"></i>Apple store</a></li>
-                                <li><a href="#"><i class="fa fa-windows"></i> Windows</a></li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            </div> <!-- row end  -->
-        </div> <!-- container end  -->
-    </section>
-    <!-- slider section end -->
-    
-    <!-- Section features start -->
-    <section id="feature">
-    	<div class="container">
-    		<div class="row">
-    			<div class="heading-inner text-center">
-    				<h2 class="sec-title">welcome to <span>droplet</span></h2>
-    				<p>Vero doloribus dignissimos, unde architecto sapiente ea expedita non magnam aliquam.</p>
-    			</div>
-    		</div> <!-- heading row end -->
-			<div class="row">
-				<div class="col-md-4 col-sm-6">
-					<div class="row">
-						<div class="col-md-12 wow slideInLeft" data-wow-delay=".3s">
-							<div class="about-inner ">
-	                            <i class="icon icon-adjustments"></i>
-	                            <div class="about-content">
-	                                <h4>Friendly support</h4>
-	                                <p> Architecto provident eaque mollitia, et repellendus commodi dignissimos aspernatur.et repellendus commodi dignissimos aspernatur.</p>
-	                            </div>
-	                        </div>
-						</div>
-						<div class="col-md-12  wow slideInLeft" data-wow-delay=".5s">
-							<div class="about-inner ">
-	                            <i class="icon icon-heart"></i>
-	                            <div class="about-content">
-	                                <h4>awesome features</h4>
-	                                <p> Architecto provident eaque mollitia, et repellendus commodi dignissimos aspernatur.et repellendus commodi dignissimos aspernatur.</p>
-	                            </div>
-	                        </div>
-						</div>
-					</div> <!-- row end -->
-                </div>
-
-                <div class="col-md-4 col-sm-4 col-xs-4 visible-md visible-lg wow fadeInDown" data-wow-delay=".3s">
-                    <img src="images/sec-img/img2.png" alt="" class="img-responsive">
-                </div>
-
-                <div class="col-md-4 col-sm-6">
-                	<div class="row">
-						<div class="col-md-12 wow slideInRight" data-wow-delay=".3s">
-							<div class="about-inner ">
-	                            <i class="icon icon-lightbulb"></i>
-	                            <div class="about-content">
-	                                <h4>Creative content</h4>
-	                                <p> Architecto provident eaque mollitia, et repellendus commodi dignissimos aspernatur.et repellendus commodi dignissimos aspernatur.</p>
-	                            </div>
-	                        </div>
-						</div>
-						<div class="col-md-12 wow slideInRight" data-wow-delay=".5s">
-							<div class="about-inner ">
-	                            <i class="icon icon-presentation"></i>
-	                            <div class="about-content">
-	                                <h4>Responsive design</h4>
-	                                <p> Architecto provident eaque mollitia, et repellendus commodi dignissimos aspernatur.et repellendus commodi dignissimos aspernatur.</p>
-	                            </div>
-	                        </div>
-						</div>
-					</div> <!-- row end -->
-                </div>
-			</div><!-- row end -->
-    	</div><!-- container end -->
-    </section>
-    <!-- Section features end -->
-
-	<!-- section about start -->
-	<section id="about">
-		<div class="container">
-			<div class="row">
-    			<div class="heading-inner text-center">
-    				<h2 class="sec-title">why <span>choose</span> us</h2>
-                     
-    				<p>Vero doloribus dignissimos, unde architecto sapiente ea expedita non magnam aliquam.</p>
-    			</div>
-    		</div> <!-- heading row end -->
-			<div class="row">
-    			<div class="feature-wrapper text-center">
-    				<div class="col-md-3 col-sm-6 col-xs-12 feature-bg wow fadeInUp" data-wow-delay=".3s">
-    					<div class="feature-inner text-center">
-                            <div class="icon-box">
-                                <i class="icon icon-basket"></i>
-                            </div>
-    						
-    						<div class="feature-content">
-    							<h3>Unique features</h3>
-    							<p>Odit temporibus, reprehenderit eum.</p>
-    							<a href="#" class="read-more">Read more</a>
-    						</div>
-    					</div>
-    				</div> <!-- item1 end -->
-    				<div class="col-md-3 col-sm-6 col-xs-12 feature-bg white wow fadeInUp" data-wow-delay=".5s">
-    					<div class="feature-inner text-center">
-                            <div class="icon-box">
-    						  <i class="icon icon-genius"></i>
-                            </div>
-    						<div class="feature-content">
-    							<h3>Powerful code</h3>
-    							<p>Odit temporibus, reprehenderit eum.</p>
-    							<a href="#" class="read-more">Read more</a>
-    						</div>
-    					</div>
-    				</div> <!-- item2 end -->
-    				<div class="col-md-3 col-sm-6 col-xs-12 feature-bg wow fadeInUp" data-wow-delay=".7s">
-    					<div class="feature-inner text-center">
-                            <div class="icon-box">
-    						  <i class="icon icon-presentation"></i>
-                            </div>
-    						<div class="feature-content">
-    							<h3>Creative Design</h3>
-    							<p>Odit temporibus, reprehenderit eum.</p>
-    							<a href="#" class="read-more">Read more</a>
-    						</div>
-    					</div>
-    				</div> <!-- item3 end -->
-    				<div class="col-md-3 col-sm-6 col-xs-12 feature-bg white wow fadeInUp" data-wow-delay=".9s">
-    					<div class="feature-inner text-center">
-                            <div class="icon-box ">
-    						  <i class="icon icon-tools"></i>
-                            </div>
-    						<div class="feature-content">
-    							<h3>Friendly Support</h3>
-    							<p>Odit temporibus, reprehenderit eum.</p>
-    							<a href="#" class="read-more">Read more</a>
-    						</div>
-    					</div>
-    				</div> <!-- item4 end -->
-    			</div><!-- feature-wrapper end -->
-    		</div><!-- row end -->
-		</div>	<!-- container end -->
-	</section>
-	<!-- section about end -->
-	
-
-    <!-- section counter start -->
-    <section id="counter-area">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-12">
-                <div class="facts text-center">
-                    <div class="col-md-3 col-xs-12 col-sm-6 columns">
-                        <div class="facts-wrap">
-                            <i class="icon icon-happy"></i>
-                            <div class="fact-content">
-                                <h6>Users</h6>
-                                <div class="line"></div>
-                                <div class="facts-wrap-num">
-                                    <span class="counter">87664</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3 col-xs-12 col-sm-6 columns">
-                        <div class="facts-wrap">
-                            <i class="icon icon-flag"></i>
-                             <div class="fact-content">
-                                <h6>Awarded</h6>
-                                <div class="line"></div>
-                                <div class="facts-wrap-num"><span class="counter"> 27512</span></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3 col-xs-12 col-sm-6 columns">
-                        <div class="facts-wrap">
-                            <i class="icon icon-download"></i>
-                            <div class="fact-content">
-                                <h6>Downloaded</h6>
-                                <div class="line"></div>
-                                <div class="facts-wrap-num"><span class="counter">65810</span></div>
-                            </div>
-                            
-                        </div>
-                    </div>
-                    <div class="col-md-3 col-xs-12 col-sm-6 columns">
-                        <div class="facts-wrap">
-                            <i class="icon icon-envelope"></i>
-                            <div class="fact-content">
-                                <h6>Mails</h6>
-                                <div class="line"></div>
-                                <div class="facts-wrap-num"><span class="counter">46906</span></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-               </div>  
-            </div> <!-- Conatainer End -->
-        </div>  <!-- Fact div ENd -->
-    </section>
-    <!-- section counter end -->
-
-	<!-- scetion screenshot start -->
-	<section id="overview">
-		<div class="container">
-			<div class="row">
-    			<div class="heading-inner text-center">
-    				<h2 class="sec-title">droplet <span>gallery</span></h2>
-                     
-    				<p>Vero doloribus dignissimos, unde architecto sapiente ea expedita non magnam aliquam.</p>
-    			</div>
-    		</div> <!-- heading row end -->
-
-			<div class="row">
-				<div class="carousel slide" id="app-carousel" data-ride="carousel">
-                    <ol class="carousel-indicators">
-                        <li data-target="#app-carousel" data-slide-to="0" class="active"></li>
-                        <li data-target="#app-carousel" data-slide-to="1"></li>
-                      </ol>
-					<div class="carousel-inner">
-						<div class="item active">
-                            <div class="row">
-                                <div class="col-xs-12 col-sm-3 col-md-3"> 
-                                    <div class="thumbnail">
-                                        <div class="caption">
-                                            <div class="caption-content">
-                                                <a data-rel="prettyPhoto" href="images/overview/screen1.jpg" > <i class="fa fa-link"></i></a>
-                                            </div>
-                                        </div>
-                                         <img src="images/overview/screen1.jpg" alt="" class="img-responsive">
-                                    </div>
-                                </div> <!-- col end -->
-                                <div class="col-xs-12 col-sm-3 col-md-3"> 
-                                    <div class="thumbnail">
-                                        <div class="caption">
-                                            <div class="caption-content">
-                                                <a data-rel="prettyPhoto" href="images/overview/screen2.jpg"> <i class="fa fa-link"></i></a>
-                                            </div>
-                                        </div>
-                                         <img src="images/overview/screen2.jpg" alt="" class="img-responsive">
-                                    </div>
-                                </div> <!-- col end -->
-                                <div class="col-xs-12 col-sm-3 col-md-3"> 
-                                    <div class="thumbnail">
-                                        <div class="caption">
-                                            <div class="caption-content">
-                                                <a data-rel="prettyPhoto" href="images/overview/screen3.jpg"> <i class="fa fa-link"></i></a>
-                                            </div>
-                                        </div>
-                                         <img src="images/overview/screen3.jpg" alt="" class="img-responsive">
-                                    </div>
-                                </div> <!-- col end -->
-                                <div class="col-xs-12 col-sm-3 col-md-3"> 
-                                    <div class="thumbnail">
-                                        <div class="caption">
-                                            <div class="caption-content">
-                                                <a data-rel="prettyPhoto" href="images/overview/screen4.jpg"> <i class="fa fa-link"></i></a>
-                                            </div>
-                                        </div>
-                                         <img src="images/overview/screen4.jpg" alt="" class="img-responsive">
-                                    </div>
-                                </div> <!-- col end -->
-                            </div> <!-- row end -->
-                        </div> <!-- item end -->
-
-                        <div class="item ">
-                            <div class="row">
-                                <div class="col-xs-12 col-sm-3 col-md-3"> 
-                                    <div class="thumbnail">
-                                        <div class="caption">
-                                            <div class="caption-content">
-                                                <a data-rel="prettyPhoto" href="images/overview/screen5.jpg"> <i class="fa fa-link"></i></a>
-                                            </div>
-                                        </div>
-                                         <img src="images/overview/screen5.jpg" alt="" class="img-responsive">
-                                    </div>
-                                </div> <!-- col end -->
-                                <div class="col-xs-12 col-sm-3 col-md-3"> 
-                                    <div class="thumbnail">
-                                        <div class="caption">
-                                            <div class="caption-content">
-                                                <a data-rel="prettyPhoto" href="images/overview/screen6.jpg"> <i class="fa fa-link"></i></a>
-                                            </div>
-                                        </div>
-                                         <img src="images/overview/screen6.jpg" alt="" class="img-responsive">
-                                    </div>
-                                </div> <!-- col end -->
-                                <div class="col-xs-12 col-sm-3 col-md-3"> 
-                                    <div class="thumbnail">
-                                        <div class="caption">
-                                            <div class="caption-content">
-                                                <a data-rel="prettyPhoto" href="images/overview/screen7.jpg"> <i class="fa fa-link"></i></a>
-                                            </div>
-                                        </div>
-                                         <img src="images/overview/screen7.jpg" alt="" class="img-responsive">
-                                    </div>
-                                </div> <!-- col end -->
-                                <div class="col-xs-12 col-sm-3 col-md-3"> 
-                                    <div class="thumbnail">
-                                        <div class="caption">
-                                            <div class="caption-content">
-                                                <a data-rel="prettyPhoto" href="images/overview/screen8.jpg"> <i class="fa fa-link"></i></a>
-                                            </div>
-                                        </div>
-                                         <img src="images/overview/screen8.jpg" alt="" class="img-responsive">
-                                    </div>
-                                </div> <!-- col end -->
-                            </div> <!-- row end -->
-                        </div> <!-- item end -->
-                        
-                       
-					</div> <!-- carousel-inner end -->
-					<!-- Controls -->
-					  <a class="left carousel-control" href="#app-carousel" role="button" data-slide="prev">
-					    <span aria-hidden="true"><img src="images/arrow-left.png" alt=""></span>
-					  </a>
-					  <a class="right carousel-control" href="#app-carousel" role="button" data-slide="next">
-					    <span  aria-hidden="true"> <img src="images/arrow-right.png" alt=""></span>
-					  </a>
-				</div>
-			</div> <!-- row end  -->
-		</div>  <!-- container end  -->
-	</section>
-	<!-- scetion screenshot end -->
-	
-
-	<!-- Section Benifit start -->
-	<section id="benefit" class="benifit">
-		<div class="bg-overlay pattern"></div>
-			<div class="container">
-				<div class="col-md-12">
-	    			<div class="heading-inner text-center">
-	    				<h2 class="sec-title"><span>Benefit</span> of the App</h2>
-                        <div class="line-btm c-white"></div>
-	    				<p>Vero doloribus dignissimos, unde architecto sapiente ea expedita non magnam aliquam.</p>
-	    			</div>
-	    		</div> <!-- heading row end -->
-	    		<div class="row">
-	    			<div class="col-md-6 col-sm-6">
-	    				<div class="item-wrapper">
-	    				 	<ul class="item-list-left">
-	    				 		<li class="wow fadeInDown" data-wow-delay=".3s">
-		    				 		 <i class="icon icon-adjustments"></i>
-		    				 		 <div class="item-content">
-			    				 		<h3>Stunning flexibility</h3>
-			    				 		<p>The given template is armed with the number of settings, so you can easily adapt it according to you requirements.</p>
-		    				 		</div>
-	    				 		</li>
-	    				 		<li class="wow fadeInDown" data-wow-delay=".6s">
-		    				 		<i class="icon icon-lightbulb"></i>
-		    				 		<div class="item-content">
-			    				 		<h3>6 Types of Intro</h3>
-			    				 		<p>Today Intro is a very important element of any project. It can be named even a face of the project.</p>
-		    				 		</div>
-	    				 		</li>
-	    				 		<li class="wow fadeInDown" data-wow-delay=".9s">
-		    				 		<i class="icon icon-basket"></i>
-		    				 		<div class="item-content">
-			    				 		<h3>Step on the New Level</h3>
-			    				 		<p>Innovative solutions and simple mathematically calculated design make it actual for a long time.</p>
-		    				 		</div>
-	    				 		</li>
-
-	    				 	</ul>
-	    				 </div> 
-	    			</div> <!-- col-md-6 end -->
-	    			<div class="col-md-6 col-sm-6">
-	    				<div class="item-right-list">
-	    					<div class="row">
-	    						<div class="col-md-5 visible-md visible-lg wow fadeInUp" data-wow-delay=".9s" >
-		    						<div class="item-img">
-		    							<img src="images/slider/slider2.png" alt="" class="img-responsive">
-		    						</div>
-	    						</div>
-	    						<div class="col-md-7">
-		    						<div class="item-content">
-		    							<ul>
-		    								<li class="wow fadeInDown" data-wow-delay=".3s">
-		    									<i class="icon icon-document"></i>
-		    									<h4>Clean Documentation</h4>
-		    									<p> Quibusdam provident libero dolorum, sit deleniti ad iure.</p>
-		    								</li>
-		    								<li class="wow fadeInDown" data-wow-delay=".6s">
-		    									<i class="icon icon-cloud"></i>
-		    									<h4>unlimited storage</h4>
-		    									<p> Quibusdam provident libero dolorum, sit deleniti ad iure.</p>
-		    								</li>
-		    								<li class="wow fadeInDown" data-wow-delay=".9s">
-		    									<i class="icon icon-focus"></i>
-		    									<h4>unique design</h4>
-		    									<p> Quibusdam provident libero dolorum, sit deleniti ad iure.</p>
-		    								</li>
-											
-		    							</ul>
-		    						</div>
-	    						</div>
-	    					</div>
-	    				</div>
-	    			</div>
-	    		</div><!-- row end -->
-		</div> <!-- container end -->
-	</section>
-	<!-- Section Benifit End -->
-
-	<section id="download">
-		<div class="container">
-			<div class="row">
-				<div class="col-md-7 wow fadeInLeft" data-wow-delay=".3s">
-					<div class="download-inner text-left">
-						<h2> <span>download</span> the App </h2>
-						<p>Lorem ipsum dolor sit amet, consectetur adipisicing elit. Eum pariatur, quam, cumque similique dignissimos cupiditate deserunt consequatur vitae, voluptas illo quos fuga nisi blanditiis ex dolore beatae odio eligendi neque.</p>
-
-						<div class="btn-container">
-							<a href="#"><i class="fa fa-android"></i></a>
-							<a href="#"><i class="fa fa-apple"></i></a>
-							<a href="#"><i class="fa fa-windows"></i></a>
-							<a href="#"><i class="fa fa-play"></i></a>
-						</div>
-					</div> <!-- download-inner end -->
-				</div> <!-- col-md-8 end -->
-				<div class="col-md-5 wow fadeInRight hidden-sm " data-wow-delay=".3s">
-					<div class="flaoting-img">
-						<img src="images/app1.png" alt="" class="img-responsive">
-					</div>
-				</div>
-			</div>  <!-- rowr end  -->
-		</div> <!-- container end  -->
-	</section>
-	<!-- section download end -->
-
-	<!-- Clients start -->
-	<section id="clients" class="clients landing_page_clients">
-		<div class="container">
-			<div class="row wow fadeInLeft">
-				<div class="col-md-12 col-xs-12">
-			      <div id="client-carousel" class=" owl-carousel owl-theme text-center client-carousel">
-			        <figure class="item client_logo">
-			          <a href="#">
-			            <img src="images/clients/client1.png" alt="client">
-			          </a>
-			        </figure>
-			        <figure class="item client_logo">
-			          <a href="#">
-			            <img src="images/clients/client2.png" alt="client">
-			          </a>
-			        </figure>
-			        <figure class="item client_logo">
-			          <a href="#">
-			            <img src="images/clients/client3.png" alt="client">
-			          </a>
-			        </figure>
-			        <figure class="item client_logo">
-			          <a href="#">
-			            <img src="images/clients/client4.png" alt="client">
-			          </a>
-			        </figure>
-			        <figure class="item client_logo">
-			          <a href="#">
-			            <img src="images/clients/client5.png" alt="client">
-			          </a>
-			        </figure>
-			        <figure class="item client_logo">
-			          <a href="#">
-			            <img src="images/clients/client6.png" alt="client">
-			          </a>
-			        </figure>
-			        <figure class="item client_logo">
-			          <a href="#">
-			            <img src="images/clients/client7.png" alt="client">
-			          </a>
-			        </figure>
-			        <figure class="item client_logo">
-			          <a href="#">
-			            <img src="images/clients/client8.png" alt="client">
-			          </a>
-			        </figure>
-			      </div><!-- Owl carousel end -->
-		    	</div><!-- col-md-12 end -->
-	    	</div><!-- Content row end -->
-		</div><!--/ Container end -->
-	</section><!--/ Clients end -->
-
-	<!-- section Contact start -->
-	<section id="contact" >
-    <div class="bg-overlay pattern"></div>
-		<div class="container">
-			<div class="col-md-12">
-    			<div class="heading-inner text-center">
-    				<h2 class="sec-title">be  <span>Connected</span></h2>
-                    <div class="line-btm c-white"></div>
-    				<p>Vero doloribus dignissimos, unde architecto sapiente ea expedita non magnam aliquam.</p>
-    			</div>
-    		</div> <!-- heading row end -->
-
-			<div class="row">
-				<div class="col-md-12">
-					<form class="contact-inner">
-						<div class="row">
-							<div class="col-md-4">
-								<div class="form-group">
-									<label > name</label>
-									<input type="text" class="form-control" placeholder="your name">
-								</div>
-							</div>
-							<div class="col-md-4">
-								<div class="form-group">
-									<label > Email</label>
-									<input type="text" class="form-control" placeholder="your email">
-								</div>
-							</div>
-							<div class="col-md-4">
-								<div class="form-group">
-									<label > Subject</label>
-									<input type="text" class="form-control" placeholder="subject">
-								</div>
-							</div>
-							<div class="col-md-12">
-								<div class="form-group">
-									<label > mesaage</label>
-									<textarea name="" id="" cols="30" rows="8" class="form-control" placeholder="message"></textarea>
-								</div>
-							</div>
-						</div> <!-- row end -->
-						<div class="row">
-							<div class="col-md-12 text-center">
-								<button class="btn btn-default">Submit message</button>
-							</div>
-						</div>
-					</form>
-				</div>
-			</div><!-- row end -->
-		</div><!-- container end -->
-	</section>
-	<!-- section Contact end -->
-
-	<!-- section Footer start  -->
-	<footer id="footer">
-		<div class="container">
-			<div class="row">
-				<div class="col-md-12">
-					<div class="footer-content text-center">
-						<a href="#slider-part" class="page-scroll logo-title">
-							<img src="images/blackbg.png" alt="" class="img-responsive">
-						</a>
-						<ul class="footer-socail list-inline">
-							<li><a href="#"><i class="fa fa-facebook"></i></a></li>
-							<li><a href="#"><i class="fa fa-twitter"></i></a></li>
-							<li><a href="#"><i class="fa fa-linkedin"></i></a></li>
-							<li><a href="#"><i class="fa fa-pinterest"></i></a></li>
-                            <li><a href="#"><i class="fa fa-instagram"></i></a></li>
-                            <li><a href="#"><i class="fa fa-pinterest"></i></a></li>
-							<li><a href="#"><i class="fa fa-instagram"></i></a></li>
-						</ul>
-					</div>
-					<hr>
-					<div class="row">
-						<div class="col-md-6">
-							<div class="copyright">
-								<p>&copy; copyright reserved to <span>Themeturn</span> - 2015</p>
-							</div>
-						</div>
-						<div class="col-md-6">
-							<div class="copyright">
-								<p class="pull-right">Copyright &copy; 2015.Company name All rights reserved.<a target="_blank" href="http://www.adminbuy.cn/">网站模板</a></p>
-							</div>
-						</div>
-					</div>
-				</div>
-			</div> <!-- row end  -->
-		</div> <!-- container end  -->
-	</footer>
-	<!-- section Footer end  -->
-
-	
-	<!-- Back To Top Button -->
-    <div id="back-top">
-        <a href="#slider-part" class="page-scroll btn btn-primary" ><i class="fa fa-angle-double-up"></i></a>
-    </div>
-    <!-- End Back To Top Button -->
-
-    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
-    <script src="js/jquery.min.js"></script>
-    <!-- Include all compiled plugins (below), or include individual files as needed -->
-    <script src="assets/js/bootstrap.min.js"></script>
-    <!-- initialize jQuery Library -->
-    <script type="text/javascript" src="js/jquery.js"></script>
-    <!-- Bootstrap jQuery -->
-    <script type="text/javascript" src="js/bootstrap.min.js"></script>
-    <!-- Style Switcher -->
-    <script type="text/javascript" src="js/isotope.js"></script>
-    <!-- Owl Carousel -->
-    <script type="text/javascript" src="js/owl.carousel.js"></script>
-    <!-- PrettyPhoto -->
-    <script type="text/javascript" src="js/jquery.prettyPhoto.js"></script>
-    <!-- Isotope -->
-    <script type="text/javascript" src="js/isotope.js"></script>
-    <!-- Wow Animation -->
-    <script type="text/javascript" src="js/wow.min.js"></script>
-    <!-- SmoothScroll -->
-    <script type="text/javascript" src="js/smooth-scroll.js"></script>
-    <!-- Eeasing -->
-    <script type="text/javascript" src="js/jquery.easing.1.3.js"></script>
-    <!-- Counter -->
-    <script type="text/javascript" src="js/jquery.counterup.min.js"></script>
-    <!-- Waypoints -->
-    <script type="text/javascript" src="js/jquery.waypoints.min.js"></script>
-    <!-- Scrolling navigation -->
-    <script type="text/javascript" src="js/scrolling-nav.js"></script>
-    <!-- Google Map API Key Source -->
-    
-    <!-- Custom js -->
-    <script type="text/javascript" src="js/custom.js"></script>
-	<script>
-		new WOW().init();
-	</script>
-    <script>
-        
-   $('.counter').counterUp({
-            delay: 100,
-            time: 2000
-        });
-    </script>
-  </body>
+.Dg {
+    background-color: #FFFFFF;
+    border: 1px solid #D9D9D9;
+    border-radius: 3px;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+    cursor: pointer;
+    float: left;
+    height: 28px;
+    line-height: 28px;
+    margin-left: 8px;
+    outline: medium none;
+    padding: 0 10px;
+    transition: background-color 0.218s ease 0s, border-color 0.218s ease 0s, box-shadow 0.218s ease 0s;
+    width: auto;
+}.RF {
+    border-radius: 0 0 3px;
+    height: 100%;
+    line-height: 30px;
+    outline: medium none;
+    overflow: hidden;
+    padding-left: 7px;
+    padding-right: 16px;
+    position: relative;
+}
+.IH {
+    display: inline-block;
+    max-width: 200px;
+}.JH {
+    display: inline-block;
+    margin-right: 4px;
+    margin-top: 1px;
+}
+.ho {
+    border-radius: 2px;
+}
+    </style>
+     
+    </div></div>
+<script src="js/jquery-1.11.1.min.js"></script>
+<script src="js/util.js"></script>
+<script src="js/ga.js"></script>
+<!-- 代码结束 -->
+</div>
+</body>
 </html>
